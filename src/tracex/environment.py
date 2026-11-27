@@ -8,36 +8,41 @@ import socket
 from typing import Any, Dict, Optional
 
 _STATIC_CACHE: Optional[Dict[str, str]] = None
+_WIN_RAM_READY = False
 
 if os.name == "nt":
-    from ctypes import wintypes
+    try:
+        from ctypes import wintypes
 
-    class _PROCESS_MEMORY_COUNTERS(ctypes.Structure):
-        _fields_ = [
-            ("cb", wintypes.DWORD),
-            ("PageFaultCount", wintypes.DWORD),
-            ("PeakWorkingSetSize", ctypes.c_size_t),
-            ("WorkingSetSize", ctypes.c_size_t),
-            ("QuotaPeakPagedPoolUsage", ctypes.c_size_t),
-            ("QuotaPagedPoolUsage", ctypes.c_size_t),
-            ("QuotaPeakNonPagedPoolUsage", ctypes.c_size_t),
-            ("QuotaNonPagedPoolUsage", ctypes.c_size_t),
-            ("PagefileUsage", ctypes.c_size_t),
-            ("PeakPagefileUsage", ctypes.c_size_t),
+        class _PROCESS_MEMORY_COUNTERS(ctypes.Structure):
+            _fields_ = [
+                ("cb", wintypes.DWORD),
+                ("PageFaultCount", wintypes.DWORD),
+                ("PeakWorkingSetSize", ctypes.c_size_t),
+                ("WorkingSetSize", ctypes.c_size_t),
+                ("QuotaPeakPagedPoolUsage", ctypes.c_size_t),
+                ("QuotaPagedPoolUsage", ctypes.c_size_t),
+                ("QuotaPeakNonPagedPoolUsage", ctypes.c_size_t),
+                ("QuotaNonPagedPoolUsage", ctypes.c_size_t),
+                ("PagefileUsage", ctypes.c_size_t),
+                ("PeakPagefileUsage", ctypes.c_size_t),
+            ]
+
+        _k32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        _psapi = ctypes.WinDLL("psapi", use_last_error=True)
+
+        _k32.GetCurrentProcess.argtypes = []
+        _k32.GetCurrentProcess.restype = wintypes.HANDLE
+
+        _psapi.GetProcessMemoryInfo.argtypes = [
+            wintypes.HANDLE,
+            ctypes.POINTER(_PROCESS_MEMORY_COUNTERS),
+            wintypes.DWORD,
         ]
-
-    _k32 = ctypes.WinDLL("kernel32", use_last_error=True)
-    _psapi = ctypes.WinDLL("psapi", use_last_error=True)
-
-    _k32.GetCurrentProcess.argtypes = []
-    _k32.GetCurrentProcess.restype = wintypes.HANDLE
-
-    _psapi.GetProcessMemoryInfo.argtypes = [
-        wintypes.HANDLE,
-        ctypes.POINTER(_PROCESS_MEMORY_COUNTERS),
-        wintypes.DWORD,
-    ]
-    _psapi.GetProcessMemoryInfo.restype = wintypes.BOOL
+        _psapi.GetProcessMemoryInfo.restype = wintypes.BOOL
+        _WIN_RAM_READY = True
+    except Exception:
+        _WIN_RAM_READY = False
 
 
 @dataclass
@@ -79,6 +84,8 @@ def _get_static_env() -> Dict[str, str]:
 
 def _get_process_ram_mb() -> float:
     if os.name == "nt":
+        if not _WIN_RAM_READY:
+            return 0.0
         try:
             counters = _PROCESS_MEMORY_COUNTERS()
             counters.cb = ctypes.sizeof(_PROCESS_MEMORY_COUNTERS)
@@ -90,6 +97,7 @@ def _get_process_ram_mb() -> float:
     else:
         try:
             import resource
+
             rss = int(getattr(resource, "getrusage")(getattr(resource, "RUSAGE_SELF")).ru_maxrss)
             divisor = 1024 * 1024 if platform.system() == "Darwin" else 1024
             return float(round(rss / divisor, 2))

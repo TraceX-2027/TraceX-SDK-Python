@@ -98,7 +98,9 @@ class GlobalHookManager:
 
         with self._lock:
             self._tracked_loops = [
-                (lp, prev, ours) for lp, prev, ours in self._tracked_loops if not lp.is_closed()
+                (lp, prev, ours)
+                for lp, prev, ours in self._tracked_loops
+                if not lp.is_closed() and lp.get_exception_handler() == ours
             ]
             if any(tracked is target_loop for tracked, _, _ in self._tracked_loops):
                 return
